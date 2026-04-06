@@ -98,10 +98,12 @@ def _place_image_placeholders(content: str, image_count: int) -> tuple[str, int]
 
         new_parts.append(h2_tag)
 
-        # 표·계산기 없는 소제목 전부에 이미지 삽입 (횟수 제한 없음)
+        # 표·계산기·Q&A 없는 소제목 전부에 이미지 삽입 (횟수 제한 없음)
+        h2_text_raw = re.sub(r'<[^>]+>', '', h2_tag)
         has_table = bool(re.search(r'<table', following, re.IGNORECASE))
         has_calc  = bool(re.search(r'acc-arrow|🧮|계산기', following))
-        if not has_table and not has_calc:
+        has_qa    = bool(re.search(r'Q&A|FAQ|자주\s*묻는\s*질문|질문과\s*답변', h2_text_raw, re.IGNORECASE))
+        if not has_table and not has_calc and not has_qa:
             new_parts.append(f"\n<!--IMAGE_PLACEHOLDER_{placeholder_idx}-->")
             placeholder_idx += 1
 
@@ -139,21 +141,37 @@ def _inject_image_html(content: str, images: list, total_count: int, keyword: st
             alt      = img_data.get("alt", keyword)
             caption  = img_data.get("caption", keyword)
         else:
-            # 이 placeholder 바로 앞 H2 텍스트를 alt/caption/파일명 기반으로 사용
+            # placeholder 앞뒤 컨텍스트에서 섹션 정보 추출
             ph_pos = content.find(placeholder)
             preceding = content[:ph_pos]
+            following_text = content[ph_pos + len(placeholder):]
+
+            # 직전 H2
             h2_hits = re.findall(r'<h2[^>]*>(.*?)</h2>', preceding, re.DOTALL | re.IGNORECASE)
             h2_text = re.sub(r'<[^>]+>', '', h2_hits[-1]).strip() if h2_hits else keyword
 
-            # 파일명용 슬러그 (H2 앞 30자)
+            # placeholder 이후 첫 번째 <p> 태그 내용을 섹션 요약으로 활용
+            p_match = re.search(r'<p[^>]*>(.*?)</p>', following_text, re.DOTALL | re.IGNORECASE)
+            p_text = re.sub(r'<[^>]+>', '', p_match.group(1)).strip() if p_match else ""
+
+            # alt: 섹션 첫 문장(60자 이내), caption: 핵심 내용 요약
+            if p_text:
+                first_sentence = re.split(r'[.。!?！？]', p_text)[0].strip()[:60]
+                alt = first_sentence if first_sentence else f"{keyword} {h2_text}"
+                # caption: p_text 앞 50자 + 키워드 자연 결합
+                caption_base = p_text[:50].rstrip()
+                caption = f"{caption_base}{'...' if len(p_text) > 50 else ''}"
+            else:
+                alt     = f"{keyword} {h2_text}"
+                caption = f"{h2_text} 관련 정보를 시각적으로 정리한 이미지입니다."
+
+            # 파일명용 슬러그
             h2_slug = re.sub(r'[^\w가-힣a-zA-Z0-9]', '-', h2_text)
             h2_slug = re.sub(r'-+', '-', h2_slug).strip('-')[:30]
             filename = f"{h2_slug}-이미지{i}.webp"
 
             prompt  = (f"{keyword}, {h2_text}, Korean style infographic scene, "
                        f"navy #002366 tone, photorealistic, 800x450")
-            alt     = f"{keyword} – {h2_text}"
-            caption = f"{h2_text}에 대한 상세 정보입니다."
 
         # 크기: 대표이미지 vs 본문이미지
         if i == 1:
