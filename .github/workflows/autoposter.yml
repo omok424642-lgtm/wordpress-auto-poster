@@ -1,0 +1,73 @@
+name: WordPress 자동 포스팅
+
+on:
+  schedule:
+    - cron: '0 21 * * *'   # 06:00 KST (slot 6)
+    - cron: '0 0 * * *'    # 09:00 KST (slot 9)
+    - cron: '0 4 * * *'    # 13:00 KST (slot 13)
+    - cron: '0 9 * * *'    # 18:00 KST (slot 18)
+    - cron: '0 12 * * *'   # 21:00 KST (slot 21)
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: '슬롯 번호 (6 / 9 / 13 / 18 / 21)'
+        required: true
+        default: '13'
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 패키지 설치
+        run: pip install -r requirements.txt
+
+      - name: .env 생성
+        run: |
+          cat > .env << 'EOF'
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+          WP_URL=${{ secrets.WP_URL }}
+          WP_USER=${{ secrets.WP_USER }}
+          WP_APP_PASSWORD=${{ secrets.WP_APP_PASSWORD }}
+          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+          UNSPLASH_ACCESS_KEY=${{ secrets.UNSPLASH_ACCESS_KEY }}
+          CLAUDE_MODEL=claude-sonnet-4-6
+          EOF
+
+      - name: 슬롯 결정
+        id: slot
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "slot=${{ inputs.slot }}" >> $GITHUB_OUTPUT
+          else
+            case "${{ github.event.schedule }}" in
+              "0 21 * * *") echo "slot=6"  >> $GITHUB_OUTPUT ;;
+              "0 0 * * *")  echo "slot=9"  >> $GITHUB_OUTPUT ;;
+              "0 4 * * *")  echo "slot=13" >> $GITHUB_OUTPUT ;;
+              "0 9 * * *")  echo "slot=18" >> $GITHUB_OUTPUT ;;
+              "0 12 * * *") echo "slot=21" >> $GITHUB_OUTPUT ;;
+              *)             echo "slot=13" >> $GITHUB_OUTPUT ;;
+            esac
+          fi
+
+      - name: 자동 포스팅 실행
+        run: python main.py ${{ steps.slot.outputs.slot }}
+
+      - name: posts.db 커밋 (키워드 이력 저장)
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add posts.db
+          git diff --staged --quiet || git commit -m "chore: update posts.db (slot ${{ steps.slot.outputs.slot }}) [skip ci]"
+          git push

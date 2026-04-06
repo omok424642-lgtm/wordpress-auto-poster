@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+temp_images/
+logs/
+*.log
+raw_*.txt
